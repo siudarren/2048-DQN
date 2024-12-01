@@ -1,7 +1,9 @@
-import React, {useState, useEffect} from "react";
+// src/components/GameContainer.jsx
+
+import React, {useState, useEffect, useContext} from "react";
 import Board from "./Board";
 import Scoreboard from "./Scoreboard";
-import {addRandomNumber, makeMove, checkGameover} from "../Utilities/Utils";
+import {addRandomNumber, makeMove, checkGameover} from "../Utilities/utils.js";
 import axios from "axios";
 
 function GameContainer() {
@@ -14,23 +16,24 @@ function GameContainer() {
     const [score, setScore] = useState(0);
     const [gameover, setGameover] = useState(false);
 
-    // Use useEffect to trigger the addRandomNumber function on initial mount
+    // Initial random number addition
     useEffect(() => {
         const newBoard = addRandomNumber(board);
-        setBoard(newBoard);
-    }, []); // The empty dependency array means this effect runs only once, after the initial render
+        const newBoard2 = addRandomNumber(newBoard);
+        setBoard(newBoard2);
+    }, []);
 
+    // Handle keyboard inputs for manual play
     useEffect(() => {
         if (!gameover) {
             const handleKeyDown = (event) => {
-                event.preventDefault(); // Prevent default to stop any default actions triggered by key presses
+                event.preventDefault();
                 const result = makeMove(event.key, board);
                 if (result.newState !== null) {
-                    // Check if newState is not null
                     const newBoardAddTile = addRandomNumber(result.newState);
                     if (newBoardAddTile !== null) {
                         setBoard(newBoardAddTile);
-                        setScore((prevScore) => prevScore + result.score); // Update the score
+                        setScore((prevScore) => prevScore + result.score);
                     }
 
                     if (checkGameover(board)) {
@@ -39,19 +42,19 @@ function GameContainer() {
                 }
             };
 
-            // Attach the event listener to the window
             window.addEventListener("keydown", handleKeyDown);
 
-            // Cleanup function to remove the event listener when the component unmounts
             return () => {
                 window.removeEventListener("keydown", handleKeyDown);
             };
         }
-    }, [board]); // Dependency on board to ensure event listener updates with current state
+    }, [board, gameover]);
 
+    // Function to get the next move from the backend (if needed)
     const getNextMove = async () => {
         try {
-            const response = await axios.post("http://127.0.0.1:5000/api/get-move", {
+            const response = await axios.post("http://localhost:5000/api/get-move", {
+                // Updated to port 5001
                 gameState: board,
                 currentScore: score,
                 gameover: gameover,
@@ -93,17 +96,20 @@ function GameContainer() {
             [0, 0, 0, 0],
             [0, 0, 0, 0],
         ];
-        setBoard(addRandomNumber(newBoard)); // Reset board and add a random number
-        setScore(0); // Reset score
-        setGameover(false); // Reset gameover status
+
+        const newBoard1 = addRandomNumber(newBoard);
+        setBoard(addRandomNumber(newBoard1));
+        setScore(0);
+        setGameover(false);
+        setTrainingData(null);
     };
 
     return (
         <div style={{display: "grid", gridTemplateColumns: "2fr 3fr 2fr", justifyItems: "center"}}>
             <div></div>
             <div>
-                <Scoreboard score={score}></Scoreboard>
-                <Board boardMatrix={board}></Board>
+                <Scoreboard score={score} />
+                <Board boardMatrix={board} />
             </div>
             <div style={{display: "flex", flexDirection: "column"}}>
                 <button onClick={resetGame} style={{margin: "5rem 0 0 0", border: "1px solid black"}}>

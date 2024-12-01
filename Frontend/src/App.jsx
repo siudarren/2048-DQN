@@ -1,13 +1,8 @@
-import {useState} from "react";
-import "./App.css";
+// src/App.js
+import React from "react";
 import GameContainer from "./Component/GameContainer";
-
 function App() {
-    return (
-        <div>
-            <GameContainer></GameContainer>
-        </div>
-    );
+    return <GameContainer style={{margin: "0 auto"}}></GameContainer>;
 }
 
 export default App;
