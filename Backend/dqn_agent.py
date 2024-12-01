@@ -75,9 +75,9 @@ class DQNAgent:
         self.gamma = 0.99    # Discount factor
         self.epsilon = 1.0   # Exploration rate
         self.epsilon_min = 0.05  # Lowered minimum epsilon
-        self.epsilon_decay = 0.9995  # Slower decay rate
-        self.learning_rate = 0.0005  # Adjusted learning rate
-        self.batch_size = 64
+        self.learning_rate = 1e-4
+        self.epsilon_decay = 0.995  # Faster decay to encourage exploitation
+        self.batch_size = 128
         self.beta = 0.4  # Initial value of beta for importance-sampling
         self.beta_increment = 1e-6  # Increment of beta per step
         self.tau = 0.001  # Soft update parameter
@@ -96,28 +96,28 @@ class DQNAgent:
         self.current_loss = 0  # Initialize current loss
 
     def _build_model(self):
-        input_layer = Input(shape=self.state_shape)
-        x = Conv2D(128, kernel_size=(2, 2), activation='relu', padding='same')(input_layer)
-        x = BatchNormalization()(x)
-        x = Conv2D(128, kernel_size=(2, 2), activation='relu', padding='same')(x)
-        x = BatchNormalization()(x)
-        x = Flatten()(x)
-        x = Dense(512, activation='relu')(x)
-        x = Dropout(0.5)(x)
+        input_layer = Input(shape=(4, 4, 16))  # Adjusted for one-hot encoded input
+        # Convolutional layers with custom kernel sizes
+        conv_a = Conv2D(512, kernel_size=(2, 1), activation='relu', padding='valid')(input_layer)
+        conv_b = Conv2D(512, kernel_size=(1, 2), activation='relu', padding='valid')(input_layer)
 
-        # Dueling DQN Architecture
-        # Value Stream
-        value = Dense(256, activation='relu')(x)
-        value = Dense(1, activation='linear')(value)
+        conv_aa = Conv2D(1024, kernel_size=(2, 1), activation='relu', padding='valid')(conv_a)
+        conv_ab = Conv2D(1024, kernel_size=(1, 2), activation='relu', padding='valid')(conv_a)
+        conv_ba = Conv2D(1024, kernel_size=(2, 1), activation='relu', padding='valid')(conv_b)
+        conv_bb = Conv2D(1024, kernel_size=(1, 2), activation='relu', padding='valid')(conv_b)
 
-        # Advantage Stream
-        advantage = Dense(256, activation='relu')(x)
-        advantage = Dense(self.action_size, activation='linear')(advantage)
+        # Flatten and concatenate
+        flat_layers = [Flatten()(layer) for layer in [conv_aa, conv_ab, conv_ba, conv_bb, conv_a, conv_b]]
+        concatenated = tf.keras.layers.Concatenate()(flat_layers)
 
-        # Combine streams using the decorated function
-        combined = Lambda(combine_streams)([value, advantage])
+        # Fully connected layers
+        dense = Dense(256, activation='relu')(concatenated)
+        dense = Dense(128, activation='relu')(dense)
 
-        model = Model(inputs=input_layer, outputs=combined)
+        # Output layer
+        output = Dense(self.action_size, activation='linear')(dense)
+
+        model = Model(inputs=input_layer, outputs=output)
         model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
         return model
 

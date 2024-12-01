@@ -10,6 +10,24 @@ from dqn_agent import DQNAgent, combine_streams  # Import combine_streams
 from tensorflow.keras.callbacks import TensorBoard
 from tensorflow.keras import mixed_precision
 
+import numpy as np
+
+def preprocess_state(state):
+    one_hot_state = np.zeros((4, 4, 16), dtype=np.float32)
+    for i in range(4):
+        for j in range(4):
+            tile_value = state[i, j]
+            # Ensure tile_value is treated as a scalar, even if it's mistakenly an array
+            if np.isscalar(tile_value) or (hasattr(tile_value, "item") and tile_value.size == 1):
+                tile_value = int(tile_value)  # Convert to int, ensuring it's a scalar
+            else:
+                raise ValueError("Tile value must be a scalar.")
+            if tile_value > 0:
+                index = int(np.log2(tile_value)) - 1
+                one_hot_state[i, j, index] = 1
+    return one_hot_state
+
+
 # 1. TensorFlow GPU Configuration
 print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
 gpus = tf.config.list_physical_devices('GPU')
@@ -22,8 +40,6 @@ if gpus:
     except RuntimeError as e:
         print(e)
 
-# Set mixed precision policy
-mixed_precision.set_global_policy('mixed_float16')
 
 # 2. Delete Existing Models and Agent States to Start Fresh
 saved_model_path = "dqn_model_latest.keras"
@@ -77,6 +93,7 @@ moving_average_max_tile = 0
 for e in range(1, episodes + 1):
     print(f"\nStarting Episode {e}")
     state = env.reset()
+    state = preprocess_state(state)
     done = False
     total_reward = 0
     max_tile = 0
@@ -89,19 +106,14 @@ for e in range(1, episodes + 1):
         action = agent.act(state)
         action_counts[action] += 1
         next_state, reward, done, info = env.step(action)
+        # print(next_state)
+        next_state = preprocess_state(next_state)  # Preprocess the next state
         total_reward += reward
         max_tile = max(max_tile, np.max(env.board))
 
-        # Check for progress
-        if np.array_equal(prev_board, env.board):
-            no_progress_steps += 1
-            if no_progress_steps >= 30:
-                print("No progress made for 30 steps. Terminating episode.")
-                done = True
-                # Apply penalty for termination
-                total_reward -= 5
-        else:
-            no_progress_steps = 0  # Reset counter if progress is made
+        max_steps_per_episode = 1000
+        if step >= max_steps_per_episode:
+            done = True
 
         agent.remember(state, action, reward, next_state, done)
         state = next_state
@@ -111,8 +123,7 @@ for e in range(1, episodes + 1):
         step += 1
 
         # Update target network every 1000 steps
-        if step % 1000 == 0:
-            print(f"Step {step}: Updating target model.")
+        if step % 5000 == 0:
             agent.update_target_model()
 
     # Reduce exploration rate

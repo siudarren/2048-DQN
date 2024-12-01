@@ -37,14 +37,27 @@ class Game2048Env(gym.Env):
         return observation
 
     def step(self, action):
-        moved, reward = self.move(action, update_score=True, update_board=True)
-        done = self.is_game_over()
+        prev_max_tile = np.max(self.board)
+        prev_score = self.score
+        moved = self.move(action)
+        reward = 0
+
         if moved:
+            # Reward for merging tiles
+            reward += (self.score - prev_score)
             self.add_random_tile()
-            reward += self.get_additional_reward()
+
+            # Reward for increasing the max tile
+            new_max_tile = np.max(self.board)
+            if new_max_tile > prev_max_tile:
+                reward += np.log2(new_max_tile) * 2
         else:
-            reward = 0
-        return self.get_observation(), reward, done, {}
+            # Penalty for invalid move
+            reward -= 0.1
+
+        done = self.is_game_over()
+        return self.board, reward, done, {}
+
 
 
     def get_additional_reward(self):
