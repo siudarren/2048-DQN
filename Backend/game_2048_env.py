@@ -1,9 +1,10 @@
 # backend/game_2048_env.py
 
-import gym
-from gym import spaces
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
 import random
+from dqn_educational import board_to_planes
 
 class Game2048Env(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -11,7 +12,7 @@ class Game2048Env(gym.Env):
     def __init__(self):
         super(Game2048Env, self).__init__()
         self.action_space = spaces.Discrete(4)  # Up, Down, Left, Right
-        self.observation_space = spaces.Box(low=0, high=2**16, shape=(4, 4, 1), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(16, 4, 4), dtype=np.float32)
         self.score = 0
         self.reset()
 
@@ -32,31 +33,51 @@ class Game2048Env(gym.Env):
 
     def get_observation(self):
         # Normalize using log2, handle zero tiles
-        observation = np.log2(self.board + 1) / np.log2(65536)
-        observation = observation.reshape(4, 4, 1).astype(np.float32)
-        return observation
+        planes = board_to_planes(self.board)      # (16, 4, 4), float32
+        return planes
 
     def step(self, action):
         prev_max_tile = np.max(self.board)
         prev_score = self.score
-        moved = self.move(action)
-        reward = 0
+        moved, merge_reward = self.move(action)
+        done = False
 
         if moved:
-            # Reward for merging tiles
-            reward += (self.score - prev_score)
+            # === VALID MOVE ===
+            # print("Valid Move")
+            # Base reward from merging
+            reward = self.score - prev_score
+            
+            # Add random tile after valid move
             self.add_random_tile()
 
-            # Reward for increasing the max tile
-            new_max_tile = np.max(self.board)
-            if new_max_tile > prev_max_tile:
-                reward += np.log2(new_max_tile) * 2
-        else:
-            # Penalty for invalid move
-            reward -= 0.1
+            # # Bonus for achieving higher tiles
+            # new_max_tile = np.max(self.board)
+            # if new_max_tile > prev_max_tile:
+            #     reward += np.log2(new_max_tile) * 2
+            
+            # # Small bonus for keeping board open (encourages not filling up)
+            # empty_cells = np.sum(self.board == 0)
+            # reward += empty_cells * 0.1
 
-        done = self.is_game_over()
-        return self.board, reward, done, {}
+            # CHECK IF GAME IS OVER (this was missing!)
+            done = self.is_game_over()
+            
+        else:
+            # === INVALID MOVE ===
+            # Strong penalty to discourage invalid moves
+            # print("Invalid Move")
+            reward = 0
+        
+        
+        
+        # Additional penalty if game over (ran out of moves)
+        if done:
+            # reward -= 50.0
+            pass
+        
+        return self.get_observation(), reward, done, {}
+
 
 
 
@@ -65,59 +86,57 @@ class Game2048Env(gym.Env):
         return empty_cells * 0.1  # Small reward for having more empty cells
 
     def move(self, direction, update_score=True, update_board=True):
-        board_copy = self.board.copy()
+        # Always work with a copy to avoid reference issues
+        board_to_process = self.board.copy()
+        
         if direction == 0:
-            new_board, reward = self.merge_up(self.board)
+            new_board, reward = self.merge_up(board_to_process)
         elif direction == 1:
-            new_board, reward = self.merge_down(self.board)
+            new_board, reward = self.merge_down(board_to_process)
         elif direction == 2:
-            new_board, reward = self.merge_left(self.board)
+            new_board, reward = self.merge_left(board_to_process)
         elif direction == 3:
-            new_board, reward = self.merge_right(self.board)
+            new_board, reward = self.merge_right(board_to_process)
         else:
             raise ValueError("Invalid action.")
 
-        moved = not np.array_equal(board_copy, new_board)
+        # Check if board actually changed
+        moved = not np.array_equal(self.board, new_board)
 
-        if moved:
-            if update_board:
-                self.board = new_board
-            if update_score:
-                self.score += reward
-                # print(f"Environment: Moved in direction {direction}. Score increased by {reward} to {self.score}.")
-        else:
-            # print(f"Environment: Move in direction {direction} did not change the board.")
-            pass
+        if moved and update_board:
+            self.board = new_board
+        
+        if moved and update_score:
+            self.score += reward
 
         return moved, reward
+        
 
 
     # Merge functions return new board and reward obtained from merges
     def merge_up(self, board):
+        transposed = board.T
+        merged_board, reward = self.merge(transposed)
+        result = merged_board.T
+        return result, reward
+
+    def merge_down(self, board):
+        flipped = np.flipud(board)       # flip vertically
+        transposed = flipped.T           # columns → rows
+        merged_board, reward = self.merge(transposed)  # merge left
+        untransposed = merged_board.T
+        result = np.flipud(untransposed) # flip back vertically
+        return result, reward
+
+    def merge_left(self, board):
         merged_board, reward = self.merge(board)
         return merged_board, reward
 
-    def merge_down(self, board):
-        rotated_right1 = np.rot90(board, k=1)
-        rotated_right2 = np.rot90(rotated_right1, k=1)
-
-        merged_board, reward = self.merge(rotated_right2)
-
-        rotate_left1 = np.rot90(merged_board, k=-1)
-        rotate_left2 = np.rot90(rotate_left1, k=-1)
-        return rotate_left2, reward
-
-    def merge_left(self, board):
-        rotated_left = np.rot90(board, k=1)
-        merged_board, reward = self.merge(rotated_left)
-        rotated_right = np.rot90(merged_board, k=-1)
-        return rotated_right, reward
-
     def merge_right(self, board):
-        rotated_right = np.rot90(board, k=-1)
-        merged_board, reward = self.merge(rotated_right)
-        rotated_left = np.rot90(merged_board, k=1)
-        return rotated_left, reward
+        flipped = np.fliplr(board)
+        merged_board, reward = self.merge(flipped)
+        result = np.fliplr(merged_board)
+        return result, reward
 
     def merge(self, board):
         new_board = np.zeros((4, 4), dtype=int)
@@ -135,7 +154,7 @@ class Game2048Env(gym.Env):
                     # Merge the tiles
                     merged_value = non_zero_tiles[index] * 2
                     merged_tiles.append(merged_value)
-                    reward += np.log2(merged_value)
+                    reward += merged_value
                     # print(f"Environment: Tile merged: {non_zero_tiles[index]} + {non_zero_tiles[index+1]} = {merged_value}. Reward += {merged_value}")
                     index += 2  # Skip the next tile since it's merged
                 else:
@@ -151,17 +170,37 @@ class Game2048Env(gym.Env):
             new_board[i] = merged_tiles
         return new_board, reward
 
+    def get_valid_actions(self):
+            """Returns list of valid actions [0, 1, 2, 3]"""
+            valid_actions = []
+            # Check all 4 directions
+            for action in range(4):
+                # Test move on a copy of the board
+                # We reuse your existing move() logic but suppress updates
+                moved, _ = self.move(action, update_score=False, update_board=False)
+                if moved:
+                    valid_actions.append(action)
+            return valid_actions
 
     def is_game_over(self):
+        # First check: any empty cells?
         if np.any(self.board == 0):
-            # print("Environment: Not game over - there are empty cells.")
             return False
-        for direction in range(4):
-            moved, _ = self.move(direction, update_score=False, update_board=False)
-            if moved:
-                # print(f"Environment: Game not over - move possible in direction {direction}.")
-                return False
-        # print("Environment: Game over - no moves left.")
+        
+        # Second check: any possible merges?
+        # Check horizontally
+        for i in range(4):
+            for j in range(3):
+                if self.board[i][j] == self.board[i][j+1]:
+                    return False
+        
+        # Check vertically
+        for i in range(3):
+            for j in range(4):
+                if self.board[i][j] == self.board[i+1][j]:
+                    return False
+        
+        # No empty cells and no possible merges
         return True
 
 
