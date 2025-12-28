@@ -5,14 +5,12 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from fastapi.middleware.cors import CORSMiddleware
-
 from .dqn_educational import DQNAgent, board_to_planes  # reuse your code
-
-
 import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .game_2048_env import Game2048Env
+from pathlib import Path
 
 FRONTEND_BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
 
@@ -28,7 +26,10 @@ if os.path.isdir(FRONTEND_BUILD_DIR):
         return FileResponse(os.path.join(FRONTEND_BUILD_DIR, "index.html"))
 
 app = FastAPI()
+BACKEND_DIR = Path(__file__).resolve().parent   # /.../2048_game/Backend
+ROOT_DIR = BACKEND_DIR.parent                   # /.../2048_game
 
+MODEL_PATH = ROOT_DIR / "models" / "dqn_2048_parallel_ep12500.pt"
 # ---- CORS ----
 app.add_middleware(
     CORSMiddleware,
@@ -64,12 +65,8 @@ agent = None
 def load_model():
     global agent
     agent = DQNAgent()
-
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    MODEL_PATH = os.path.join(BASE_DIR, "models", "dqn_2048_parallel_ep12500.pt")
-
-    agent.load(MODEL_PATH)
-    # Put agent in eval mode and disable exploration
+    print(f"Loading model from: {MODEL_PATH}")
+    agent.load(str(MODEL_PATH))   # ensure string path
     agent.epsilon = 0.0
     agent.policy_net.eval()
     print("✅ DQN agent loaded and ready!")
