@@ -8,6 +8,24 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dqn_educational import DQNAgent, board_to_planes  # reuse your code
 
+
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+FRONTEND_BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+
+if os.path.isdir(FRONTEND_BUILD_DIR):
+    app.mount(
+        "/static",
+        StaticFiles(directory=os.path.join(FRONTEND_BUILD_DIR, "static")),
+        name="static",
+    )
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(os.path.join(FRONTEND_BUILD_DIR, "index.html"))
+
 app = FastAPI()
 
 # ---- CORS ----

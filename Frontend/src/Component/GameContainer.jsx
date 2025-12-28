@@ -65,7 +65,12 @@ function GameContainer() {
     // ---------- 3. Call backend to get AI move ----------
     async function requestAiMove(currentBoard) {
         try {
-            const res = await fetch("http://localhost:8000/move", {
+            const API_BASE =
+                process.env.NODE_ENV === "production"
+                    ? "" // same origin
+                    : "http://localhost:8000"; // dev backend
+
+            const res = await fetch(`${API_BASE}/move`, {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({board: currentBoard}),
