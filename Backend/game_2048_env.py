@@ -4,7 +4,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import random
-from dqn_educational import board_to_planes
+from .dqn_educational import board_to_planes
 
 class Game2048Env(gym.Env):
     metadata = {'render.modes': ['human']}

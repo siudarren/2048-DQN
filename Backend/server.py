@@ -6,12 +6,13 @@ from pydantic import BaseModel
 from typing import List
 from fastapi.middleware.cors import CORSMiddleware
 
-from dqn_educational import DQNAgent, board_to_planes  # reuse your code
+from .dqn_educational import DQNAgent, board_to_planes  # reuse your code
 
 
 import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from .game_2048_env import Game2048Env
 
 FRONTEND_BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
 
@@ -81,7 +82,7 @@ def get_valid_actions_from_board(board_np: np.ndarray) -> list[int]:
     Determine which moves actually change the board.
     Uses same logic as Game2048Env.move(), but doesn't modify score.
     """
-    from game_2048_env import Game2048Env
+    
 
     env = Game2048Env()
     env.board = board_np.copy()
