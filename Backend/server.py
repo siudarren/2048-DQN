@@ -63,7 +63,11 @@ agent = None
 def load_model():
     global agent
     agent = DQNAgent()
-    agent.load("../models/dqn_2048_parallel_ep12500.pt")
+
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    MODEL_PATH = os.path.join(BASE_DIR, "models", "dqn_2048_parallel_ep12500.pt")
+
+    agent.load(MODEL_PATH)
     # Put agent in eval mode and disable exploration
     agent.epsilon = 0.0
     agent.policy_net.eval()
