@@ -1,36 +1,47 @@
-# server.py
-import torch
-import numpy as np
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List
-from fastapi.middleware.cors import CORSMiddleware
-from .dqn_educational import DQNAgent, board_to_planes  # reuse your code
 import os
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from .game_2048_env import Game2048Env
 from pathlib import Path
+from typing import List
 
-FRONTEND_BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+import numpy as np
+import torch
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-if os.path.isdir(FRONTEND_BUILD_DIR):
+from .dqn_educational import DQNAgent, board_to_planes
+from .game_2048_env import Game2048Env
+
+# ----------------- Paths -----------------
+
+BACKEND_DIR = Path(__file__).resolve().parent   # /.../2048_game/Backend
+ROOT_DIR = BACKEND_DIR.parent                   # /.../2048_game
+MODEL_PATH = ROOT_DIR / "models" / "dqn_2048_parallel_ep32000.pt"
+FRONTEND_BUILD_DIR = ROOT_DIR / "frontend" / "build"
+
+# ----------------- FastAPI app -----------------
+
+app = FastAPI()
+
+# Static files / React build (optional)
+if FRONTEND_BUILD_DIR.is_dir():
     app.mount(
         "/static",
-        StaticFiles(directory=os.path.join(FRONTEND_BUILD_DIR, "static")),
+        StaticFiles(directory=FRONTEND_BUILD_DIR / "static"),
         name="static",
     )
 
     @app.get("/")
     async def serve_index():
-        return FileResponse(os.path.join(FRONTEND_BUILD_DIR, "index.html"))
+        return FileResponse(FRONTEND_BUILD_DIR / "index.html")
+else:
+    @app.get("/")
+    async def root():
+        return {"status": "ok", "message": "DQN-2048 backend is running"}
 
-app = FastAPI()
-BACKEND_DIR = Path(__file__).resolve().parent   # /.../2048_game/Backend
-ROOT_DIR = BACKEND_DIR.parent                   # /.../2048_game
+# ----------------- CORS -----------------
 
-MODEL_PATH = ROOT_DIR / "models" / "dqn_2048_parallel_ep12500.pt"
-# ---- CORS ----
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -41,12 +52,11 @@ app.add_middleware(
         "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
-    allow_methods=["*"],  # important: lets OPTIONS through
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# ----- Request / Response schemas -----
+# ----------------- Schemas -----------------
 
 class BoardRequest(BaseModel):
     board: List[List[int]]  # 4x4 array of tile values
@@ -56,7 +66,7 @@ class MoveResponse(BaseModel):
     action: int  # 0=up, 1=down, 2=left, 3=right
 
 
-# ----- Load model at startup -----
+# ----------------- Agent load -----------------
 
 agent = None
 
@@ -72,42 +82,27 @@ def load_model():
     print("✅ DQN agent loaded and ready!")
 
 
-# ----- Helper: compute valid actions on backend (optional but nice) -----
+# ----------------- Helpers -----------------
 
 def get_valid_actions_from_board(board_np: np.ndarray) -> list[int]:
-    """
-    Determine which moves actually change the board.
-    Uses same logic as Game2048Env.move(), but doesn't modify score.
-    """
-    
-
     env = Game2048Env()
     env.board = board_np.copy()
     valid = env.get_valid_actions()
     return valid
 
 
-# ----- Main endpoint -----
+# ----------------- Main endpoint -----------------
 
 @app.post("/move", response_model=MoveResponse)
 def get_ai_move(req: BoardRequest):
-    """
-    Given a 4x4 2048 board, return the best move according to the DQN.
-    """
-
-    # Convert incoming Python list -> numpy array
     board_np = np.array(req.board, dtype=np.int32)
 
-    # Compute valid moves so the model never picks invalid ones
     valid_actions = get_valid_actions_from_board(board_np)
     if not valid_actions:
-        # No moves available; return -1 to indicate "game over" / "no move"
         return MoveResponse(action=-1)
 
-    # Convert to planes: (16, 4, 4)
-    planes = board_to_planes(board_np)  # np.float32
+    planes = board_to_planes(board_np)
 
-    # Use your existing select_action() interface
     action = agent.select_action(
         planes,
         valid_actions=valid_actions,
