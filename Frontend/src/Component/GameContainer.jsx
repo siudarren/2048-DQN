@@ -15,6 +15,7 @@ function GameContainer() {
     const [score, setScore] = useState(0);
     const [gameover, setGameover] = useState(false);
     const [autoPlaying, setAutoPlaying] = useState(false);
+    const [lastSpawn, setLastSpawn] = useState(null); // { row, col } | null
 
     const boardRef = useRef(board);
     useEffect(() => {
@@ -23,9 +24,18 @@ function GameContainer() {
 
     // ---------- 1. Initial random tiles ----------
     useEffect(() => {
-        let newBoard = addRandomNumber(board);
-        newBoard = addRandomNumber(newBoard);
-        setBoard(newBoard);
+        const emptyBoard = [
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+        ];
+
+        const first = addRandomNumber(emptyBoard);
+        const second = addRandomNumber(first.board);
+
+        setBoard(second.board);
+        setLastSpawn(second.spawn);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // run once on mount
 
@@ -34,7 +44,6 @@ function GameContainer() {
         if (gameover) return;
 
         const handleKeyDown = (event) => {
-            // Allow other shortcuts (like F5 dev tools etc.) to work
             if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
                 return;
             }
@@ -43,12 +52,12 @@ function GameContainer() {
 
             const result = makeMove(event.key, board);
             if (result.newState !== null) {
-                const newBoardAddTile = addRandomNumber(result.newState);
+                const {board: newBoardAddTile, spawn} = addRandomNumber(result.newState);
                 if (newBoardAddTile !== null) {
                     setBoard(newBoardAddTile);
+                    setLastSpawn(spawn);
                     setScore((prevScore) => prevScore + result.score);
 
-                    // ✅ Check gameover on the *new* board, not the old one
                     if (checkGameover(newBoardAddTile)) {
                         setGameover(true);
                     }
@@ -113,9 +122,10 @@ function GameContainer() {
             const result = makeMove(key, currentBoard);
 
             if (result.newState !== null) {
-                const newBoardAddTile = addRandomNumber(result.newState);
+                const {board: newBoardAddTile, spawn} = addRandomNumber(result.newState);
                 if (newBoardAddTile !== null) {
                     setBoard(newBoardAddTile);
+                    setLastSpawn(spawn);
                     setScore((prev) => prev + result.score);
 
                     if (checkGameover(newBoardAddTile)) {
@@ -126,28 +136,24 @@ function GameContainer() {
                 }
             }
 
-            // 🐢 delay between moves
-            setTimeout(doStep, 120); // 0.5s per move; change as you like
+            setTimeout(doStep, 120);
         };
 
-        // start immediately:
         doStep();
 
         return () => {
             cancelled = true;
         };
-    }, [autoPlaying, gameover]); // ❗ no "board" here
+    }, [autoPlaying, gameover]);
 
     const handleAiMoveClick = async () => {
         if (gameover) return;
 
         const action = await requestAiMove(board);
         if (action === null || action === -1) {
-            // no move / error / gameover from backend
             return;
         }
 
-        // Map numeric action -> Arrow keys expected by makeMove
         const keyMap = {
             0: "ArrowUp",
             1: "ArrowDown",
@@ -163,9 +169,10 @@ function GameContainer() {
 
         const result = makeMove(key, board);
         if (result.newState !== null) {
-            const newBoardAddTile = addRandomNumber(result.newState);
+            const {board: newBoardAddTile, spawn} = addRandomNumber(result.newState);
             if (newBoardAddTile !== null) {
                 setBoard(newBoardAddTile);
+                setLastSpawn(spawn);
                 setScore((prevScore) => prevScore + result.score);
 
                 if (checkGameover(newBoardAddTile)) {
@@ -184,12 +191,14 @@ function GameContainer() {
             [0, 0, 0, 0],
         ];
 
-        let newBoard = addRandomNumber(emptyBoard);
-        newBoard = addRandomNumber(newBoard);
+        const first = addRandomNumber(emptyBoard);
+        const second = addRandomNumber(first.board);
 
-        setBoard(newBoard);
+        setBoard(second.board);
+        setLastSpawn(second.spawn);
         setScore(0);
         setGameover(false);
+        setAutoPlaying(false);
     };
 
     return (
@@ -203,7 +212,7 @@ function GameContainer() {
 
             <div>
                 <Scoreboard score={score} />
-                <Board boardMatrix={board} />
+                <Board boardMatrix={board} lastSpawn={lastSpawn} />
             </div>
 
             <div style={{display: "flex", flexDirection: "column"}}>

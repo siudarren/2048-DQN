@@ -1,0 +1,15 @@
+/* src/components/Board.css */
+
+.board {
+    display: inline-flex;
+    flex-direction: column;
+    /* gap: 8px; */
+    /* padding: 10px; */
+    /* background: #bbada0; */
+    /* border-radius: 6px; */
+}
+
+.board-row {
+    display: flex;
+    gap: 8px;
+}

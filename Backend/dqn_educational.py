@@ -120,6 +120,55 @@ class QNetwork(nn.Module):
         
         return q_values
 
+class ValueNetwork(nn.Module):
+    """
+    Afterstate Value Network:
+    Input : (16, 4, 4) planes
+    Output: scalar V(s')
+    Shares the same conv trunk as QNetwork, but final layer is size 1.
+    """
+    def __init__(self):
+        super(ValueNetwork, self).__init__()
+
+        self.conv1 = nn.Conv2d(
+            in_channels=16,
+            out_channels=128,
+            kernel_size=2,
+            stride=1,
+            padding=0
+        )
+        self.conv2 = nn.Conv2d(
+            in_channels=128,
+            out_channels=128,
+            kernel_size=2,
+            stride=1,
+            padding=0
+        )
+
+        self.fc1 = nn.Linear(128 * 2 * 2, 256)
+        self.fc2 = nn.Linear(256, 256)
+        # ONE output instead of 4 actions
+        self.fc3 = nn.Linear(256, 1)
+
+        self.relu = nn.ReLU()
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        # x: [batch, 16, 4, 4]
+        x = self.relu(self.conv1(x))      # [batch, 128, 3, 3]
+        x = self.relu(self.conv2(x))      # [batch, 128, 2, 2]
+        x = x.view(x.size(0), -1)         # [batch, 512]
+        x = self.relu(self.fc1(x))        # [batch, 256]
+        x = self.relu(self.fc2(x))        # [batch, 256]
+        v = self.fc3(x)                   # [batch, 1]
+        return v.squeeze(-1)              # [batch]
 
 # ==============================================================================
 # PART 2: EXPERIENCE REPLAY (Memory of the Agent)
@@ -187,6 +236,30 @@ class ReplayBuffer:
     
     def __len__(self):
         """Return current buffer size"""
+        return len(self.buffer)
+
+class AfterstateReplayBuffer:
+    """
+    Replay buffer for afterstate value learning.
+    Transition: (after_state, reward, next_after_state, done)
+    """
+    def __init__(self, capacity=100000):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, after_state, reward, next_after_state, done):
+        self.buffer.append((after_state, reward, next_after_state, done))
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        after_state, reward, next_after_state, done = zip(*batch)
+        return (
+            np.array(after_state),
+            np.array(reward, dtype=np.float32),
+            np.array(next_after_state),
+            np.array(done, dtype=np.float32),
+        )
+
+    def __len__(self):
         return len(self.buffer)
 
 
@@ -332,6 +405,7 @@ class DQNAgent:
         # === STEP 1: Sample Batch ===
         states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
         
+
         # Convert to PyTorch tensors
         states = torch.FloatTensor(states).to(self.device)
         actions = torch.LongTensor(actions).to(self.device)
@@ -418,6 +492,154 @@ class DQNAgent:
         self.episodes = checkpoint['episodes']
         print(f"📂 Model loaded from {filepath}")
 
+
+def random_symmetry_pair(state1: np.ndarray, state2: np.ndarray) -> tuple:
+    """
+    Apply the SAME random rotation/flip to TWO states.
+    Critical for maintaining (s, s') relationship in replay buffer.
+    
+    Args:
+        state1: (C, 4, 4) first state
+        state2: (C, 4, 4) second state
+    
+    Returns:
+        (aug_state1, aug_state2) with same transformation applied
+    """
+    # Choose random transformation
+    k = np.random.randint(0, 4)  # 0, 90, 180, or 270 degrees
+    flip = np.random.rand() < 0.5  # 50% chance of horizontal flip
+    
+    # Apply SAME transformation to both
+    aug1 = np.rot90(state1, k, axes=(-2, -1))
+    aug2 = np.rot90(state2, k, axes=(-2, -1))
+    
+    if flip:
+        aug1 = np.flip(aug1, axis=-1)
+        aug2 = np.flip(aug2, axis=-1)
+    
+    return aug1.copy(), aug2.copy()
+
+class AfterstateAgent:
+    """
+    Afterstate value-learning agent for 2048.
+
+    Learns V(s') where s' = board after the move (before random tile).
+    Bellman update:
+        V(s_prev') <- r_t + gamma * V(s_t')  (TD(0) between afterstates)
+    """
+    def __init__(self,
+                 learning_rate=1e-4,
+                 gamma=1.0,
+                 epsilon_start=1.0,
+                 epsilon_end=0.01,
+                 epsilon_decay=0.995,
+                 batch_size=64,
+                 target_update_freq=1000):
+
+        # === Device ===
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            print("🖥️  Using device: MPS (Apple GPU)")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+            print("🖥️  Using device: CUDA GPU")
+        else:
+            self.device = torch.device("cpu")
+            print("🖥️  Using device: CPU")
+
+        # === Networks ===
+        self.policy_net = ValueNetwork().to(self.device)
+        self.target_net = ValueNetwork().to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
+
+        print("\n📊 Afterstate Value Network:")
+        print(f"    Total parameters: {sum(p.numel() for p in self.policy_net.parameters()):,}")
+
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
+
+        self.gamma = gamma
+        self.epsilon = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay = epsilon_decay
+        self.batch_size = batch_size
+        self.target_update_freq = target_update_freq
+
+        self.memory = AfterstateReplayBuffer(capacity=100000)
+
+        self.steps = 0
+        self.episodes = 0
+        self.losses = []
+
+    # Simple value evaluation helper (batch: [B,16,4,4])
+    def value(self, after_state_batch):
+        with torch.no_grad():
+            x = torch.FloatTensor(after_state_batch).to(self.device)
+            return self.policy_net(x).cpu().numpy()
+
+    def train_step(self):
+        if len(self.memory) < self.batch_size:
+            return None
+
+        after_states, rewards, next_after_states, dones = self.memory.sample(self.batch_size)
+        # Apply the same random symmetry to (s, s') for each transition
+        for i in range(after_states.shape[0]):
+            aug_s, aug_ns = random_symmetry_pair(after_states[i], next_after_states[i])
+            after_states[i]      = aug_s
+            next_after_states[i] = aug_ns
+
+        after_states = torch.FloatTensor(after_states).to(self.device)          # [B,16,4,4]
+        next_after_states = torch.FloatTensor(next_after_states).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)                   # [B]
+        dones = torch.FloatTensor(dones).to(self.device)                       # [B]
+
+        # Current values V(s_prev')
+        current_v = self.policy_net(after_states)                              # [B]
+
+        with torch.no_grad():
+            next_v = self.target_net(next_after_states)                        # [B]
+            target_v = rewards + (1.0 - dones) * self.gamma * next_v
+
+        loss = F.mse_loss(current_v, target_v)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=10)
+        self.optimizer.step()
+
+        self.steps += 1
+        if self.steps % self.target_update_freq == 0:
+            self.target_net.load_state_dict(self.policy_net.state_dict())
+            print(f"🎯 Afterstate target net updated at step {self.steps}")
+
+        self.losses.append(loss.item())
+        return loss.item()
+
+    def update_epsilon(self):
+        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
+
+    def save(self, filepath):
+        """Save model checkpoint"""
+        torch.save({
+            'policy_net_state_dict': self.policy_net.state_dict(),
+            'target_net_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+            'steps': self.steps,
+            'episodes': self.episodes,
+        }, filepath)
+        print(f"💾 Model saved to {filepath}")
+    
+    def load(self, filepath):
+        """Load model checkpoint"""
+        checkpoint = torch.load(filepath, map_location=self.device)
+        self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
+        self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.epsilon = checkpoint['epsilon']
+        self.steps = checkpoint['steps']
+        self.episodes = checkpoint['episodes']
+        print(f"📂 Model loaded from {filepath}")
 
 # ==============================================================================
 # PART 4: HELPER FUNCTIONS

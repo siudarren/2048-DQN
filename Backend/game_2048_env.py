@@ -112,6 +112,37 @@ class Game2048Env(gym.Env):
         return moved, reward
         
 
+    def get_afterstate(self, action):
+        """
+        Compute the afterstate for a given action:
+        - applies slide+merge to a COPY of the board
+        - DOES NOT add a random tile
+        - DOES NOT change self.board or self.score
+
+        Returns:
+            moved: bool, whether board changed
+            reward: merge reward from the move
+            after_planes: (16, 4, 4) float32, board_to_planes of new board
+        """
+        # Work on a copy so we don't mutate env state
+        board_copy = self.board.copy()
+
+        # Apply merge in the chosen direction
+        if action == 0:      # up
+            new_board, reward = self.merge_up(board_copy)
+        elif action == 1:    # down
+            new_board, reward = self.merge_down(board_copy)
+        elif action == 2:    # left
+            new_board, reward = self.merge_left(board_copy)
+        elif action == 3:    # right
+            new_board, reward = self.merge_right(board_copy)
+        else:
+            raise ValueError("Invalid action")
+
+        moved = not np.array_equal(self.board, new_board)
+
+        after_planes = board_to_planes(new_board)
+        return moved, reward, after_planes
 
     # Merge functions return new board and reward obtained from merges
     def merge_up(self, board):
@@ -208,3 +239,4 @@ class Game2048Env(gym.Env):
     def render(self, mode='human'):
         print("Current Board:")
         print(self.board)
+

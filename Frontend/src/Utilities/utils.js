@@ -23,9 +23,10 @@ export function addRandomNumber(state) {
 
         // Step 5: Place the number in the selected cell
         newState[row][col] = randomNumber;
+        return {board: newState, spawn: {row, col}};
     }
 
-    return newState;
+    return {board: newState, spawn: {Null, Null}};
 }
 
 export function checkGameover(state) {
