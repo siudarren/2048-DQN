@@ -17,7 +17,7 @@ from Backend.game_2048_env import Game2048Env
 
 BACKEND_DIR = Path(__file__).resolve().parent   # /.../2048_game/Backend
 ROOT_DIR = BACKEND_DIR.parent                   # /.../2048_game
-MODEL_PATH = ROOT_DIR / "models" / "afterstate_2048_parallel_ep65500.pt"
+MODEL_PATH = ROOT_DIR / "models" / "afterstate_2048_parallel_latest.pt"
 FRONTEND_BUILD_DIR = ROOT_DIR / "frontend" / "build"
 
 # ----------------- FastAPI app -----------------

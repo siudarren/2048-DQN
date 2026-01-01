@@ -9,3 +9,13 @@ __pycache__/
 # Other files and directories to ignore
 .DS_Store
 *.log
+
+# Ignore ALL models
+models/*
+# Except latest
+!models/afterstate_2048_parallel_latest.pt
+
+# Ignore ALL plots
+plots/*
+# Except latest
+!plots/training_latest.png
