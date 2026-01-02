@@ -1,23 +1,11 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Ignore everything
+*
 
-node_moduless
-dist-ssr
-*.local
+# But NOT directories we care about
+!dist/
+!dist/**
+!vite.svg
+!index.html
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Still ignore node_modules specifically
+node_modules/
