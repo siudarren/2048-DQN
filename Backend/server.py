@@ -1,4 +1,7 @@
+# Backend/server.py
+
 import os
+import random
 from pathlib import Path
 from typing import List
 
@@ -10,35 +13,52 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from Backend.dqn_educational import DQNAgent, board_to_planes, AfterstateAgent
+from Backend.dqn_educational import AfterstateAgent
 from Backend.game_2048_env import Game2048Env
 
 # ----------------- Paths -----------------
 
-BACKEND_DIR = Path(__file__).resolve().parent   # /.../2048_game/Backend
-ROOT_DIR = BACKEND_DIR.parent                   # /.../2048_game
+BACKEND_DIR = Path(__file__).resolve().parent      # /.../2048_game/Backend
+ROOT_DIR = BACKEND_DIR.parent                      # /.../2048_game
+
+# model you deploy with Heroku
 MODEL_PATH = ROOT_DIR / "models" / "afterstate_2048_parallel_latest.pt"
-FRONTEND_BUILD_DIR = ROOT_DIR / "frontend" / "build"
+
+# Vite default build output: Frontend/dist
+FRONTEND_BUILD_DIR = ROOT_DIR / "Frontend" / "dist"
 
 # ----------------- FastAPI app -----------------
 
 app = FastAPI()
 
-# Static files / React build (optional)
-if FRONTEND_BUILD_DIR.is_dir():
-    app.mount(
-        "/static",
-        StaticFiles(directory=FRONTEND_BUILD_DIR / "static"),
-        name="static",
-    )
+# ----------------- Static / Frontend -----------------
 
-    @app.get("/")
+if FRONTEND_BUILD_DIR.is_dir():
+    # Vite puts JS/CSS/etc in dist/assets
+    assets_dir = FRONTEND_BUILD_DIR / "assets"
+    if assets_dir.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=assets_dir),
+            name="assets",
+        )
+
+    @app.get("/", include_in_schema=False)
     async def serve_index():
+        """Serve the built React (Vite) app."""
         return FileResponse(FRONTEND_BUILD_DIR / "index.html")
 else:
-    @app.get("/")
+    @app.get("/", include_in_schema=False)
     async def root():
-        return {"status": "ok", "message": "DQN-2048 backend is running"}
+        """Fallback when frontend bundle is not present."""
+        return {"status": "ok", "message": "DQN-2048 backend is running (no frontend bundle found)"}
+
+
+# Optional explicit health endpoint for checks
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
 
 # ----------------- CORS -----------------
 
@@ -46,10 +66,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://localhost:3000",
         "http://localhost:5175",
+        "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
+        # you can add your Heroku frontend origin if you ever separate them
+        # "https://your-frontend-domain.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -68,7 +90,7 @@ class MoveResponse(BaseModel):
 
 # ----------------- Agent load -----------------
 
-agent = None
+agent: AfterstateAgent | None = None
 
 
 @app.on_event("startup")
@@ -87,8 +109,8 @@ def load_model():
     agent.load(str(MODEL_PATH))
     agent.epsilon = 0.0
     agent.policy_net.eval()
+    print(f"📂 Model loaded from {MODEL_PATH}")
     print("✅ Afterstate agent loaded and ready!")
-
 
 
 # ----------------- Helpers -----------------
@@ -106,7 +128,6 @@ def get_valid_actions_from_board(board_np: np.ndarray) -> list[int]:
 def get_ai_move(req: BoardRequest):
     board_np = np.array(req.board, dtype=np.int32)
 
-    # Build env from board
     env = Game2048Env()
     env.board = board_np.copy()
 
